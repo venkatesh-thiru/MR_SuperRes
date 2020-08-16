@@ -90,7 +90,6 @@ class Unet(nn.Module):
 
 
             trans_1 = self.decoder_1(latent)
-
             concat_1 = torch.cat([trans_1,down_5],dim=1)
             up_1 = self.decoder_up_1(concat_1)
 
@@ -141,7 +140,7 @@ class Unet(nn.Module):
 
 if __name__ =="__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dimensions = 1,1,128,128,128
+    dimensions = 8,1,256,256,32
     x = torch.rand(dimensions)
     x = x.to(device)
     model = Unet(1,1,2)

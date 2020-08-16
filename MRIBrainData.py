@@ -29,12 +29,11 @@ class BrainDataset(Dataset):
         try:
             old_affine = inp.affine
             new_affine = old_affine * 2
-            inp = image.resample_img(inp, target_affine=new_affine, target_shape=[128, 128, 128],
-                                     interpolation="continuous")
-            update1 = inp.affine * 2
-            red = image.resample_img(inp, target_affine=update1, interpolation='nearest')
-            update2 = red.affine / 2
-            red = image.resample_img(red, target_affine=update2, target_shape=[128, 128, 128], interpolation="nearest")
+            inp = image.resample_img(inp, target_affine=old_affine, target_shape=[256, 256, 160], interpolation="nearest")
+            update1 = inp.affine * 4
+            red = image.resample_img(inp, target_affine=update1, target_shape=[256, 256, 160], interpolation='nearest')
+            update2 = red.affine / 4
+            red = image.resample_img(red, target_affine=update2, target_shape=[256, 256, 160], interpolation="nearest")
 
             inp_np = inp.get_fdata()
             inp_np = np.expand_dims((inp_np/np.max(inp_np)),0).astype("float32")
@@ -52,6 +51,9 @@ class BrainDataset(Dataset):
 
 
 
-dataset = BrainDataset("IXI-T1")
-loader = DataLoader(dataset)
-
+if __name__ =="__main__":
+    dataset = BrainDataset("IXI-T1")
+    loader = DataLoader(dataset)
+    for i,(res,org) in enumerate(loader):
+        print(res.shape,org.shape)
+        break

@@ -34,16 +34,16 @@ unet3D = unet3D.to(device)
 General Hyper parameters
 '''
 learning_rate = 0.001
-Batch_Size = 4
+Batch_Size = 2
 opt = optim.Adam(unet3D.parameters(),lr=learning_rate)
 # opt = optim.SGD(unet3D.parameters(),lr=learning_rate,momentum=0.9)
 loss_fn = nn.MSELoss()
-Epochs = 50
+Epochs = 10
 
 '''
 Initializes a Tensorboard summary writer to keep track of the training process
 '''
-writer = SummaryWriter("runs/baseUnet3D_ADAMOptim_{}Epochs_BS{}".format(Epochs,Batch_Size))
+writer = SummaryWriter("runs/baseUnet3D_OriginalSize_ADAMOptim_{}Epochs_BS{}".format(Epochs,Batch_Size))
 
 
 
@@ -52,7 +52,7 @@ writer = SummaryWriter("runs/baseUnet3D_ADAMOptim_{}Epochs_BS{}".format(Epochs,B
 Training data, calls the BrainDataset(Custom Dataset Class)
 '''
 Training_dataset = BrainDataset("IXI-T1",Validation=False)
-TrainLoader = DataLoader(Training_dataset,batch_size=4)
+TrainLoader = DataLoader(Training_dataset,batch_size=Batch_Size)
 '''
 Testing data, calls the BrainDataset(Custom Dataset Class)
 '''
@@ -93,9 +93,9 @@ def writeImage(epoch,step):
     reduced = torch.from_numpy(np.expand_dims(reduced,0)).to(device)
     pred = unet3D(reduced)
     original,reduced,pred = torch.squeeze(original),torch.squeeze(reduced),torch.squeeze(pred)
-    slice_original = (original[:, :, int(original.shape[2] / 3.2)])
-    slice_reduced  = (reduced[:,: ,int(reduced.shape[2]/3.2)])
-    slice_pred = (pred[:,:,int(pred.shape[2]/3.2)])
+    slice_original = (original[:, :, int(original.shape[2] / 2)])
+    slice_reduced  = (reduced[:,: ,int(reduced.shape[2]/2)])
+    slice_pred = (pred[:,:,int(pred.shape[2]/2)])
     slices_list = [slice_original.detach().cpu().numpy().T,slice_reduced.detach().cpu().numpy().T,slice_pred.detach().cpu().numpy().T]
     show(slices_list,epoch,step)
     unet3D.train()
@@ -123,9 +123,15 @@ for epoch in range(Epochs):
 
     writeImage(epoch, step)
     print("EPOCH {} Loss ====> {}".format(epoch,overall_loss/Batch_count))
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': unet3D.state_dict(),
+        'optimizer_state_dict': opt.state_dict(),
+        'loss': overall_loss/Batch_count,
+    }, "Models/baseUnet3D_OriginalSize__ADAMOptim_10Epochs_BS4.pth")
 
 '''
 saves the model after training
 '''
-torch.save(unet3D,"baseUnet3D_ADAMOptim_50Epochs_BS4")
+torch.save(unet3D,"Models/baseUnet3D_OriginalSize__ADAMOptim_10Epochs_BS4.pth")
 
