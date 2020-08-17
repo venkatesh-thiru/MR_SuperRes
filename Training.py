@@ -59,9 +59,6 @@ Testing data, calls the BrainDataset(Custom Dataset Class)
 Test_dataset  = BrainDataset ("IXI-T1",Validation= True)
 TestLoader = DataLoader(Test_dataset,batch_size=1)
 
-
-
-
 # unet3D = torch.load("first_training_ADAM_10EPOCHS.pth")
 
 '''
@@ -106,6 +103,14 @@ The Training loop begins here
 step = 0
 print("Beginning Training............")
 Batch_count = len(TrainLoader)
+
+'''
+Restoring checkpoint since the training has been interupted
+'''
+checkpoint = torch.load("Models/baseUnet3D_OriginalSize__ADAMOptim_10Epochs_BS4.pth")
+unet3D.load_state_dict(checkpoint["model_state_dict"])
+opt.load_state_dict(checkpoint['optimizer_state_dict'])
+epoch = checkpoint["epoch"]
 
 for epoch in range(Epochs):
     overall_loss = 0
