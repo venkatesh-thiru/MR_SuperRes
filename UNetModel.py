@@ -8,8 +8,7 @@ def conv3D(in_channel,filters,activation):
         nn.BatchNorm3d(filters),
         activation,
         nn.Conv3d(filters, filters, kernel_size=3, stride=1, padding = 1),
-        nn.BatchNorm3d(filters),
-        activation
+        nn.BatchNorm3d(filters)
     ))
 
 def convTrans3D(in_channel,filters,activation):
@@ -40,7 +39,7 @@ class Unet(nn.Module):
         self.pool_3 = maxPool3D()
         self.encoder_4 = conv3D(4*filters,8*filters,activation)
         self.pool_4 = maxPool3D()
-        self.encoder_5 = conv3D(8 * filters, 16 * filters, activation)
+        self.encoder_5 = conv3D(8*filters,16*filters,activation)
         self.pool_5 = maxPool3D()
 
         # Latent space representation
@@ -140,10 +139,10 @@ class Unet(nn.Module):
 
 if __name__ =="__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dimensions = 8,1,256,256,32
+    dimensions = 5,1,256,256,32
     x = torch.rand(dimensions)
     x = x.to(device)
-    model = Unet(1,1,2)
+    model = Unet(1,1,4)
     print(model)
     model = model.to(device)
     out = model(x)

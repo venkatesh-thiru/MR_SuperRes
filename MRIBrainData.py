@@ -34,7 +34,6 @@ class BrainDataset(Dataset):
             red = image.resample_img(inp, target_affine=update1, target_shape=[256, 256, 160], interpolation='nearest')
             update2 = red.affine / 4
             red = image.resample_img(red, target_affine=update2, target_shape=[256, 256, 160], interpolation="nearest")
-
             inp_np = inp.get_fdata()
             inp_np = np.expand_dims((inp_np/np.max(inp_np)),0).astype("float32")
             res_np = red.get_fdata()
@@ -54,6 +53,6 @@ class BrainDataset(Dataset):
 if __name__ =="__main__":
     dataset = BrainDataset("IXI-T1")
     loader = DataLoader(dataset)
-    for i,(res,org) in enumerate(loader):
-        print(res.shape,org.shape)
+    for i,(inp, res) in enumerate(loader):
+        print(inp.shape)
         break

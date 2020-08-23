@@ -9,7 +9,7 @@ from mpl_toolkits.axes_grid1 import ImageGrid
 from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
 import numpy as np
-
+import os
 
 
 '''
@@ -18,7 +18,7 @@ Parameters to avoid memory overflow error
 torch.cuda.empty_cache()
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = True
-
+restore = False
 '''
 Checks for GPU and decides the device for processing
 '''
@@ -27,23 +27,30 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 '''
 Initialize model
 '''
-unet3D = Unet(in_channel=1,out_channel=1,filters=1)
+def init_weights(m):
+    if type(m) == nn.Conv3d:
+        torch.nn.init.xavier_uniform_(m.weight)
+    # m.bias.data.fill_(0.01)
+
+unet3D = Unet(in_channel=1,out_channel=1,filters=2)
+unet3D.apply(init_weights)
 unet3D = unet3D.to(device)
 
 '''
 General Hyper parameters
 '''
 learning_rate = 0.001
-Batch_Size = 2
+Batch_Size = 1
 opt = optim.Adam(unet3D.parameters(),lr=learning_rate)
-# opt = optim.SGD(unet3D.parameters(),lr=learning_rate,momentum=0.9)
-loss_fn = nn.MSELoss()
+loss_fn = nn.L1Loss()
 Epochs = 10
 
 '''
 Initializes a Tensorboard summary writer to keep track of the training process
 '''
-writer = SummaryWriter("runs/baseUnet3D_OriginalSize_ADAMOptim_{}Epochs_BS{}".format(Epochs,Batch_Size))
+
+training_name = "baseUnet3D_OriginalSize_ADAMOptim_{}Epochs_BS{}_GlorotWeights_L1Loss".format(Epochs,Batch_Size)
+writer = SummaryWriter(os.path.join("runs",training_name))
 
 
 
@@ -107,12 +114,14 @@ Batch_count = len(TrainLoader)
 '''
 Restoring checkpoint since the training has been interupted
 '''
-checkpoint = torch.load("Models/baseUnet3D_OriginalSize__ADAMOptim_10Epochs_BS4.pth")
-unet3D.load_state_dict(checkpoint["model_state_dict"])
-opt.load_state_dict(checkpoint['optimizer_state_dict'])
-epoch = checkpoint["epoch"]
+if restore:
+    checkpoint = torch.load("Models/baseUnet3D_OriginalSize__ADAMOptim_10Epochs_BS4.pth")
+    unet3D.load_state_dict(checkpoint["model_state_dict"])
+    opt.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint["epoch"]
 
 for epoch in range(Epochs):
+    torch.cuda.empty_cache()
     overall_loss = 0
     for idx,(original,reduced) in enumerate(tqdm(TrainLoader)):
         step += 1
@@ -133,10 +142,10 @@ for epoch in range(Epochs):
         'model_state_dict': unet3D.state_dict(),
         'optimizer_state_dict': opt.state_dict(),
         'loss': overall_loss/Batch_count,
-    }, "Models/baseUnet3D_OriginalSize__ADAMOptim_10Epochs_BS4.pth")
+    }, os.path.join("Models",training_name))
 
 '''
 saves the model after training
 '''
-torch.save(unet3D,"Models/baseUnet3D_OriginalSize__ADAMOptim_10Epochs_BS4.pth")
+torch.save(unet3D,os.path.join("Models",training_name))
 
