@@ -5,12 +5,12 @@ from MRIBrainData import BrainDataset
 import torch.optim as optim
 import torch.nn as nn
 from tqdm import tqdm
-from mpl_toolkits.axes_grid1 import ImageGrid
 from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-
+import nibabel as nib
+from utils import make_chunks,preprocess_data,FFT_compression,unmake_chunks
 
 '''
 Parameters to avoid memory overflow error
@@ -32,41 +32,41 @@ def init_weights(m):
         torch.nn.init.xavier_uniform_(m.weight)
     # m.bias.data.fill_(0.01)
 
-unet3D = Unet(in_channel=1,out_channel=1,filters=2)
+unet3D = Unet(in_channel=1,out_channel=1,filters=8)
 unet3D.apply(init_weights)
+unet3D = unet3D.to(device)
+# unet3D = torch.load("Models/chunked_test_training")
 unet3D = unet3D.to(device)
 
 '''
 General Hyper parameters
 '''
 learning_rate = 0.001
-Batch_Size = 1
+Batch_Size = 20
 opt = optim.Adam(unet3D.parameters(),lr=learning_rate)
-loss_fn = nn.L1Loss()
+loss_fn = nn.MSELoss()
 Epochs = 10
 
 '''
 Initializes a Tensorboard summary writer to keep track of the training process
 '''
 
-training_name = "baseUnet3D_OriginalSize_ADAMOptim_{}Epochs_BS{}_GlorotWeights_L1Loss".format(Epochs,Batch_Size)
+training_name = "baseUnet3D_chunkedSize_ADAMOptim_{}Epochs_BS{}_GlorotWeights_MSELoss_2709".format(Epochs,Batch_Size)
 writer = SummaryWriter(os.path.join("runs",training_name))
-
-
-
 
 '''
 Training data, calls the BrainDataset(Custom Dataset Class)
 '''
-Training_dataset = BrainDataset("IXI-T1",Validation=False)
-TrainLoader = DataLoader(Training_dataset,batch_size=Batch_Size)
+training_dataset = BrainDataset("IXI-T1",type = "train")
+validation_dataset = BrainDataset("IXI-T1",type = "validation")
+TrainLoader = DataLoader(training_dataset,batch_size=Batch_Size)
+ValidationLoader = DataLoader(validation_dataset,batch_size=Batch_Size)
 '''
 Testing data, calls the BrainDataset(Custom Dataset Class)
 '''
-Test_dataset  = BrainDataset ("IXI-T1",Validation= True)
+Test_dataset  = BrainDataset ("IXI-T1",type="test")
 TestLoader = DataLoader(Test_dataset,batch_size=1)
 
-# unet3D = torch.load("first_training_ADAM_10EPOCHS.pth")
 
 '''
 Generated image from the writeImage method is the arranged and converted into a matplotlib figure and written on tensorboard
@@ -92,21 +92,46 @@ changes the model to the evaluation mode and feed forwards Test data into the mo
 
 def writeImage(epoch,step):
     unet3D.eval()
-    original,reduced = Test_dataset[0]
-    original = torch.from_numpy(original).to(device)
-    reduced = torch.from_numpy(np.expand_dims(reduced,0)).to(device)
-    pred = unet3D(reduced)
-    original,reduced,pred = torch.squeeze(original),torch.squeeze(reduced),torch.squeeze(pred)
+    print("writing image.............")
+    datadir = "IXI-T1/Actual_Images"
+    scans = os.listdir(datadir)
+    img = nib.load(os.path.join(datadir,scans[-1]))
+    img = preprocess_data(img)
+    original = img.get_fdata()
+    reduced = FFT_compression(original)
+    reduced_chunks = make_chunks(reduced)
+    predicted = []
+    for chunk in reduced_chunks:
+        chunk = torch.from_numpy(np.expand_dims(chunk,0).astype("float32")).to(device)
+        with torch.no_grad():
+            predicted_chunk = unet3D(torch.unsqueeze(chunk,0))
+        predicted.append(torch.squeeze(predicted_chunk).detach().cpu().numpy())
+    pred = unmake_chunks(predicted)
     slice_original = (original[:, :, int(original.shape[2] / 2)])
     slice_reduced  = (reduced[:,: ,int(reduced.shape[2]/2)])
     slice_pred = (pred[:,:,int(pred.shape[2]/2)])
-    slices_list = [slice_original.detach().cpu().numpy().T,slice_reduced.detach().cpu().numpy().T,slice_pred.detach().cpu().numpy().T]
+    slices_list = [slice_original.T,slice_reduced.T,slice_pred.T]
     show(slices_list,epoch,step)
     unet3D.train()
+
+def validate(step):
+    unet3D.eval()
+    loss = 0
+    torch.cuda.empty_cache()
+    for idx,(original,reduced) in enumerate(tqdm(ValidationLoader)):
+        original= original.to(device)
+        reduced = reduced.to(device)
+        with torch.no_grad():
+            logit = unet3D(reduced)
+        curr_loss = loss_fn(logit, original)
+        loss += curr_loss.item()
+    unet3D.train()
+    return loss/len(validation_dataset)
 
 '''
 The Training loop begins here
 '''
+
 step = 0
 print("Beginning Training............")
 Batch_count = len(TrainLoader)
@@ -115,10 +140,9 @@ Batch_count = len(TrainLoader)
 Restoring checkpoint since the training has been interupted
 '''
 if restore:
-    checkpoint = torch.load("Models/baseUnet3D_OriginalSize__ADAMOptim_10Epochs_BS4.pth")
+    checkpoint = torch.load("Models/baseUnet3D_OriginalSize_ADAMOptim_10Epochs_BS1_GlorotWeights_L1Loss")
     unet3D.load_state_dict(checkpoint["model_state_dict"])
-    opt.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint["epoch"]
+
 
 for epoch in range(Epochs):
     torch.cuda.empty_cache()
@@ -134,9 +158,13 @@ for epoch in range(Epochs):
         opt.step()
         overall_loss += loss.item()
         writer.add_scalar("training_loss",loss.item(),step)
-
+        if not step % 200:
+            validation_loss = validate(step)
+            writer.add_scalar("validation loss", validation_loss, step)
+    validation_loss = validate(step)
+    writer.add_scalar("validation loss",validation_loss, step)
     writeImage(epoch, step)
-    print("EPOCH {} Loss ====> {}".format(epoch,overall_loss/Batch_count))
+    print("EPOCH {} training Loss ===> {}|| validation loss ===>{}".format(epoch+1,overall_loss/Batch_count,validation_loss))
     torch.save({
         'epoch': epoch,
         'model_state_dict': unet3D.state_dict(),
@@ -147,5 +175,9 @@ for epoch in range(Epochs):
 '''
 saves the model after training
 '''
-torch.save(unet3D,os.path.join("Models",training_name))
+torch.save({
+    'epoch': epoch,
+    'model_state_dict': unet3D.state_dict(),
+    'optimizer_state_dict': opt.state_dict(),
+}, os.path.join("Models", training_name))
 

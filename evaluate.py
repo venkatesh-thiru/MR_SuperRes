@@ -8,15 +8,13 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 
-
-
 Test_dataset  = BrainDataset ("IXI-T1",Validation= True)
 TestLoader = DataLoader(Test_dataset,batch_size=1)
 
 Training_dataset = BrainDataset("IXI-T1",Validation=False)
 TrainLoader = DataLoader(Training_dataset,batch_size=1)
 
-checkpoint = torch.load("Models/baseUnet3D_OriginalSize_ADAMOptim_20Epochs_BS2_GlorotWeights")
+checkpoint = torch.load("Models/baseUnet3D_OriginalSize_ADAMOptim_10Epochs_BS1_GlorotWeights_L1Loss")
 unet3D = Unet(in_channel=1,out_channel=1,filters=2)
 unet3D.load_state_dict(checkpoint["model_state_dict"])
 unet3D.to("cuda")
@@ -25,7 +23,7 @@ unet3D.to("cuda")
 unet3D.eval()
 ssim_overall = 0
 
-for idx,(original,reduced) in enumerate(tqdm(TestLoader)):
+for idx, (original, reduced) in enumerate(tqdm(TestLoader)):
     original = original.to("cuda")
     reduced = reduced.to("cuda")
     pred = unet3D(reduced)

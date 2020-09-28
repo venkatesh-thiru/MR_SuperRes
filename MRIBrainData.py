@@ -3,43 +3,47 @@ import numpy as np
 import os
 from nilearn import image
 import torch
-
+from tqdm import tqdm
 
 
 class BrainDataset(Dataset):
-    def __init__(self,directory,transform = None,Validation = False):
+    def __init__(self,directory,transform = None,type="train"):
         self.directory = directory
         self.transform = transform
-        self.scans = os.listdir(directory)
-        if Validation:
-            self.scans = self.scans[int(len(self.scans)*0.9)+1 : ]
+        self.ground_truth_dir = os.path.join(directory,"ground_truth")
+        self.compressed_dir = os.path.join(directory,"compressed")
+        self.ground_truth = os.listdir(self.ground_truth_dir)
+        self.compressed = os.listdir(self.compressed_dir)
+        if type == "test":
+            self.ground_truth = self.ground_truth[int(len(self.ground_truth)*0.9)+1 : ]
+            self.compressed = self.compressed[int(len(self.compressed) * 0.9) + 1:]
+        elif type == "train":
+            self.ground_truth = self.ground_truth[ : int(len(self.ground_truth)*0.85)]
+            self.compressed = self.compressed[: int(len(self.compressed) * 0.85)]
         else:
-            self.scans = self.scans[ : int(len(self.scans)*0.9)]
+            self.ground_truth = self.ground_truth[int(len(self.ground_truth)*0.85)+1:int(len(self.ground_truth)*0.9)+1]
+            self.compressed = self.compressed[int(len(self.compressed)*0.85)+1:int(len(self.compressed)*0.9)+1]
 
     def __len__(self):
-        return len(self.scans)
+        return len(self.ground_truth)
 
     def __getitem__(self, item):
         if torch.is_tensor(item):
             item = item.tolist()
 
-        scan_file = os.path.join(self.directory,self.scans[item])
-        inp = image.load_img(scan_file,dtype=("float32"))
+        ground_truth_fname = os.path.join(self.ground_truth_dir,self.ground_truth[item])
+        compressed_fname = os.path.join(self.compressed_dir, self.ground_truth[item])
+
         training_data = []
         try:
-            old_affine = inp.affine
-            new_affine = old_affine * 2
-            inp = image.resample_img(inp, target_affine=old_affine, target_shape=[256, 256, 160], interpolation="nearest")
-            update1 = inp.affine * 4
-            red = image.resample_img(inp, target_affine=update1, target_shape=[256, 256, 160], interpolation='nearest')
-            update2 = red.affine / 4
-            red = image.resample_img(red, target_affine=update2, target_shape=[256, 256, 160], interpolation="nearest")
-            inp_np = inp.get_fdata()
-            inp_np = np.expand_dims((inp_np/np.max(inp_np)),0).astype("float32")
-            res_np = red.get_fdata()
-            res_np = np.expand_dims(res_np/np.max(res_np),0).astype("float32")
-            training_data.append(inp_np)
-            training_data.append(res_np)
+            ground_truth_img = image.load_img(ground_truth_fname, dtype=("float32"))
+            compressed_img = image.load_img(compressed_fname, dtype=("float32"))
+            gt_np = ground_truth_img.get_fdata()
+            gt_np = np.expand_dims((gt_np / np.max(gt_np) if np.max(gt_np)!= 0 else gt_np), 0).astype("float32")
+            comp_np = compressed_img.get_fdata()
+            comp_np = np.expand_dims((comp_np / np.max(comp_np) if np.max(comp_np)!= 0 else comp_np), 0).astype("float32")
+            training_data.append(gt_np)
+            training_data.append(comp_np)
             if self.transform:
                 training_data = self.transform(training_data)
 
@@ -52,7 +56,9 @@ class BrainDataset(Dataset):
 
 if __name__ =="__main__":
     dataset = BrainDataset("IXI-T1")
-    loader = DataLoader(dataset)
-    for i,(inp, res) in enumerate(loader):
-        print(inp.shape)
-        break
+    loader = DataLoader(dataset,batch_size=1)
+    for i in tqdm(range(0,len(dataset))):
+        gt,comp = dataset[i]
+        max_gt,max_comp = np.max(gt),np.max(comp)
+        if np.isnan(max_gt) or np.isnan(max_comp):
+            print(i)
