@@ -45,14 +45,15 @@ learning_rate = 0.001
 Batch_Size = 20
 opt = optim.Adam(unet3D.parameters(),lr=learning_rate)
 loss_fn = nn.MSELoss()
-Epochs = 10
+Epochs = 50
 
 '''
 Initializes a Tensorboard summary writer to keep track of the training process
 '''
 
 training_name = "baseUnet3D_chunkedSize_ADAMOptim_{}Epochs_BS{}_GlorotWeights_MSELoss_2709".format(Epochs,Batch_Size)
-writer = SummaryWriter(os.path.join("runs",training_name))
+train_writer = SummaryWriter(os.path.join("runs",training_name,"_training"))
+validation_writer = SummaryWriter(os.path.join("runs",training_name,"_validation"))
 
 '''
 Training data, calls the BrainDataset(Custom Dataset Class)
@@ -83,7 +84,7 @@ def show(img,epoch,step):
     ax[2].imshow(img[2], interpolation='nearest', origin="lower", cmap="gray")
     ax[2].set_title("Predicted")
     ax[2].set_axis_off()
-    writer.add_figure("comparison",fig,step)
+    train_writer.add_figure("comparison",fig,step)
 
 
 '''
@@ -98,13 +99,13 @@ def writeImage(epoch,step):
     img = nib.load(os.path.join(datadir,scans[-1]))
     img = preprocess_data(img)
     original = img.get_fdata()
+    original = original / np.max(original)
     reduced = FFT_compression(original)
     reduced_chunks = make_chunks(reduced)
     predicted = []
     for chunk in reduced_chunks:
         chunk = torch.from_numpy(np.expand_dims(chunk,0).astype("float32")).to(device)
-        with torch.no_grad():
-            predicted_chunk = unet3D(torch.unsqueeze(chunk,0))
+        predicted_chunk = unet3D(torch.unsqueeze(chunk,0))
         predicted.append(torch.squeeze(predicted_chunk).detach().cpu().numpy())
     pred = unmake_chunks(predicted)
     slice_original = (original[:, :, int(original.shape[2] / 2)])
@@ -157,14 +158,12 @@ for epoch in range(Epochs):
         loss.backward()
         opt.step()
         overall_loss += loss.item()
-        writer.add_scalar("training_loss",loss.item(),step)
-        if not step % 200:
-            validation_loss = validate(step)
-            writer.add_scalar("validation loss", validation_loss, step)
     validation_loss = validate(step)
-    writer.add_scalar("validation loss",validation_loss, step)
+    epoch_loss = overall_loss/len(TrainLoader)
+    train_writer.add_scalar("training_loss",epoch_loss,epoch+1)
+    validation_writer.add_scalar("validation loss",validation_loss, epoch+1)
     writeImage(epoch, step)
-    print("EPOCH {} training Loss ===> {}|| validation loss ===>{}".format(epoch+1,overall_loss/Batch_count,validation_loss))
+    print("EPOCH {} training Loss ===> {}|| validation loss ===>{}".format(epoch+1,epoch_loss,validation_loss))
     torch.save({
         'epoch': epoch,
         'model_state_dict': unet3D.state_dict(),
