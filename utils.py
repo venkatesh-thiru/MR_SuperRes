@@ -4,7 +4,8 @@ import matplotlib.pyplot as plt
 import os
 from nilearn import image
 from tqdm import tqdm
-
+import scipy
+from scipy.ndimage import zoom
 
 def show_slices(slices):
     """ Function to display row of image slices """
@@ -48,14 +49,11 @@ def unmake_chunks(chunks):
     return image
 
 def FFT_compression(inp_np):
-    Bt = np.fft.fftn(inp_np)
-    BtSort = np.sort(np.abs(Bt.reshape(-1)))
-    keep = 0.05
-    thresh = BtSort[int(np.floor((1-keep)*len(BtSort)))]
-    ind = np.abs(Bt)>thresh
-    Btlow = Bt * ind
-    Alow = np.fft.ifftn(Btlow).real
-    return Alow
+    resample = scipy.signal.resample(inp_np, 64, axis=0)
+    resample = scipy.signal.resample(resample, 64, axis=1)
+    zoom_factor = np.array(inp_np.shape) / resample.shape
+    zoomed = zoom(resample, zoom_factor, mode='nearest')
+    return zoomed
 
 def write_data(chunks,scan,type):
     datadir = os.path.join("IXI-T1",type)

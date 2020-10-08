@@ -27,7 +27,7 @@ class Unet(nn.Module):
         self.in_channel = in_channel
         self.out_channel = out_channel
         self.filters = filters
-        activation = nn.ReLU(inplace=True)
+        activation = nn.PReLU()
 
         # Defining Encoder Block
 

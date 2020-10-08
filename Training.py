@@ -42,7 +42,7 @@ unet3D = unet3D.to(device)
 General Hyper parameters
 '''
 learning_rate = 0.001
-Batch_Size = 20
+Batch_Size = 16
 opt = optim.Adam(unet3D.parameters(),lr=learning_rate)
 loss_fn = nn.MSELoss()
 Epochs = 50
@@ -51,7 +51,7 @@ Epochs = 50
 Initializes a Tensorboard summary writer to keep track of the training process
 '''
 
-training_name = "baseUnet3D_chunkedSize_ADAMOptim_{}Epochs_BS{}_GlorotWeights_MSELoss_2709".format(Epochs,Batch_Size)
+training_name = "baseUnet3D_chunkedSize_ADAMOptim_{}Epochs_BS{}_GlorotWeights_MSELoss_0610".format(Epochs,Batch_Size)
 train_writer = SummaryWriter(os.path.join("runs",training_name,"_training"))
 validation_writer = SummaryWriter(os.path.join("runs",training_name,"_validation"))
 
@@ -60,7 +60,7 @@ Training data, calls the BrainDataset(Custom Dataset Class)
 '''
 training_dataset = BrainDataset("IXI-T1",type = "train")
 validation_dataset = BrainDataset("IXI-T1",type = "validation")
-TrainLoader = DataLoader(training_dataset,batch_size=Batch_Size)
+TrainLoader = DataLoader(training_dataset,batch_size=Batch_Size,shuffle=True)
 ValidationLoader = DataLoader(validation_dataset,batch_size=Batch_Size)
 '''
 Testing data, calls the BrainDataset(Custom Dataset Class)
@@ -144,6 +144,7 @@ if restore:
     checkpoint = torch.load("Models/baseUnet3D_OriginalSize_ADAMOptim_10Epochs_BS1_GlorotWeights_L1Loss")
     unet3D.load_state_dict(checkpoint["model_state_dict"])
 
+old_validation_loss = 0
 
 for epoch in range(Epochs):
     torch.cuda.empty_cache()
@@ -164,19 +165,22 @@ for epoch in range(Epochs):
     validation_writer.add_scalar("validation loss",validation_loss, epoch+1)
     writeImage(epoch, step)
     print("EPOCH {} training Loss ===> {}|| validation loss ===>{}".format(epoch+1,epoch_loss,validation_loss))
-    torch.save({
-        'epoch': epoch,
-        'model_state_dict': unet3D.state_dict(),
-        'optimizer_state_dict': opt.state_dict(),
-        'loss': overall_loss/Batch_count,
-    }, os.path.join("Models",training_name))
+    if (old_validation_loss == 0) or (old_validation_loss>validation_loss):
+        print("saving checkpoint...........")
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': unet3D.state_dict(),
+            'optimizer_state_dict': opt.state_dict(),
+            'loss': overall_loss/Batch_count,
+        }, os.path.join("Models",training_name))
+        old_validation_loss = validation_loss
 
-'''
-saves the model after training
-'''
-torch.save({
-    'epoch': epoch,
-    'model_state_dict': unet3D.state_dict(),
-    'optimizer_state_dict': opt.state_dict(),
-}, os.path.join("Models", training_name))
+# '''
+# saves the model after training
+# '''
+# torch.save({
+#     'epoch': epoch,
+#     'model_state_dict': unet3D.state_dict(),
+#     'optimizer_state_dict': opt.state_dict(),
+# }, os.path.join("Models", training_name))
 
