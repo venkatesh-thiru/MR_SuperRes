@@ -6,6 +6,8 @@ from nilearn import image
 from tqdm import tqdm
 import scipy
 from scipy.ndimage import zoom
+from fsl.data.image import Image
+from fsl.utils.image import resample
 
 def show_slices(slices):
     """ Function to display row of image slices """
@@ -48,44 +50,31 @@ def unmake_chunks(chunks):
     image = np.concatenate(widths,axis = 0)
     return image
 
-def FFT_compression(inp_np):
-    resample = scipy.signal.resample(inp_np, 64, axis=0)
-    resample = scipy.signal.resample(resample, 64, axis=1)
-    zoom_factor = np.array(inp_np.shape) / resample.shape
-    zoomed = zoom(resample, zoom_factor, mode='nearest')
-    return zoomed
+def FFT_compression(myimg,scale_factor,ifzoom=True):
+    resample_img = resample.resampleToPixdims(myimg, scale_factor)
+    new_affine = resample_img[1]
+    if ifzoom:
+        zoom_factor = np.array(myimg.shape) / np.array(resample_img[0].shape)
+        zoomed = zoom(resample_img[0], zoom_factor, mode='nearest')
+        return zoomed,new_affine
+    else:
+        return resample_img[0],new_affine
 
-def write_data(chunks,scan,type):
-    datadir = os.path.join("IXI-T1",type)
-    scan = scan.split('.')[0]
-    for i in range(0,len(chunks)):
-        file_name = scan + "_" + str(i)
-        file_name = os.path.join(datadir,file_name)
-        img = nib.Nifti1Image(chunks[i],np.eye(4))
-        img.to_filename(os.path.join(str(file_name)+".nii.gz"))
+def write_data(compressed,scan,new_affine):
+    target_dir = "IXI-T1/Compressed_3x3x1.2"
+    compressed_img = nib.Nifti1Image(compressed.astype(np.int16),new_affine)
+    compressed_img.to_filename(os.path.join(target_dir, scan) + ".nii.gz")
 
-def preprocess_data(img):
-    affine = img.affine
-    img = image.resample_img(img, target_affine=affine, target_shape=[256, 256, 160], interpolation="nearest")
-    return img
 
 def prepare_datasets():
     data_dir = "IXI-T1/Actual_Images"
     scans = os.listdir(data_dir)
     for scan in tqdm(scans):
         try:
-            fname = os.path.join(data_dir, scan)
-            inp = nib.load(fname)
-            old_affine = inp.affine
-            inp = image.resample_img(inp, target_affine=old_affine, target_shape=[256, 256, 160], interpolation="nearest")
-            inp_np = inp.get_fdata()
-            inp_np = inp_np.astype(np.int16)
-            chunks = make_chunks(image = inp_np)
-            write_data(chunks,scan,type = "ground_truth")
-            compressed = FFT_compression(inp_np)
+            myimg = Image(os.path.join(data_dir, scan))
+            compressed,new_affine = FFT_compression(myimg,[3,3,1.2])
             compressed = compressed.astype(np.int16)
-            chunks = make_chunks(compressed)
-            write_data(chunks,scan,type="compressed")
+            write_data(compressed,scan,new_affine)
         except:
             print("{} invalid input".format(scan))
     print("write finished")

@@ -115,25 +115,6 @@ class Unet(nn.Module):
 
             out = self.out(up_5)
 
-            # print("x ==> ",x.shape)
-            # print("down_1 ==> ", down_1.shape)
-            # print("pool_1 ==> ", pool_1.shape)
-            # print("down_2 ==> ", down_2.shape)
-            # print("pool_2 ==> ", pool_2.shape)
-            # print("down_3 ==> ", down_3.shape)
-            # print("pool_3 ==> ", pool_3.shape)
-            # print("down_4 ==> ", down_4.shape)
-            # print("pool_4 ==> ", pool_4.shape)
-            # print("down_5 ==> ", down_5.shape)
-            # print("pool_5 ==> ", pool_5.shape)
-            # print("trans_1 ==> ", trans_1.shape)
-            # print("up_1 ==> ", up_1.shape)
-            # print("up_2 ==> ", up_2.shape)
-            # print("up_3 ==> ", up_3.shape)
-            # print("up_4 ==> ", up_4.shape)
-            # print("up_5 ==> ", up_5.shape)
-            # print ("out ==> ",out.shape)
-
 
             return out
 

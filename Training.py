@@ -10,7 +10,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import nibabel as nib
-from utils import make_chunks,preprocess_data,FFT_compression,unmake_chunks
+from utils import make_chunks,FFT_compression,unmake_chunks
+import statistics
+
+
 
 '''
 Parameters to avoid memory overflow error
@@ -35,8 +38,6 @@ def init_weights(m):
 unet3D = Unet(in_channel=1,out_channel=1,filters=8)
 unet3D.apply(init_weights)
 unet3D = unet3D.to(device)
-# unet3D = torch.load("Models/chunked_test_training")
-unet3D = unet3D.to(device)
 
 '''
 General Hyper parameters
@@ -44,14 +45,14 @@ General Hyper parameters
 learning_rate = 0.001
 Batch_Size = 16
 opt = optim.Adam(unet3D.parameters(),lr=learning_rate)
-loss_fn = nn.MSELoss()
+loss_fn = nn.L1Loss()
 Epochs = 50
 
 '''
 Initializes a Tensorboard summary writer to keep track of the training process
 '''
 
-training_name = "baseUnet3D_chunkedSize_ADAMOptim_{}Epochs_BS{}_GlorotWeights_MSELoss_0610".format(Epochs,Batch_Size)
+training_name = "baseUnet3D_chunkedSize_ADAMOptim_{}Epochs_BS{}_GlorotWeights_L1Loss_0810".format(Epochs,Batch_Size)
 train_writer = SummaryWriter(os.path.join("runs",training_name,"_training"))
 validation_writer = SummaryWriter(os.path.join("runs",training_name,"_validation"))
 
@@ -97,7 +98,6 @@ def writeImage(epoch,step):
     datadir = "IXI-T1/Actual_Images"
     scans = os.listdir(datadir)
     img = nib.load(os.path.join(datadir,scans[-1]))
-    img = preprocess_data(img)
     original = img.get_fdata()
     original = original / np.max(original)
     reduced = FFT_compression(original)
@@ -117,7 +117,7 @@ def writeImage(epoch,step):
 
 def validate(step):
     unet3D.eval()
-    loss = 0
+    loss = []
     torch.cuda.empty_cache()
     for idx,(original,reduced) in enumerate(tqdm(ValidationLoader)):
         original= original.to(device)
@@ -125,9 +125,9 @@ def validate(step):
         with torch.no_grad():
             logit = unet3D(reduced)
         curr_loss = loss_fn(logit, original)
-        loss += curr_loss.item()
+        loss.append(curr_loss.item())
     unet3D.train()
-    return loss/len(validation_dataset)
+    return statistics.median(loss)
 
 '''
 The Training loop begins here
@@ -148,7 +148,7 @@ old_validation_loss = 0
 
 for epoch in range(Epochs):
     torch.cuda.empty_cache()
-    overall_loss = 0
+    overall_loss = []
     for idx,(original,reduced) in enumerate(tqdm(TrainLoader)):
         step += 1
         original = original.to(device)
@@ -158,9 +158,9 @@ for epoch in range(Epochs):
         opt.zero_grad()
         loss.backward()
         opt.step()
-        overall_loss += loss.item()
+        overall_loss.append(loss.item())
     validation_loss = validate(step)
-    epoch_loss = overall_loss/len(TrainLoader)
+    epoch_loss = statistics.median(overall_loss)
     train_writer.add_scalar("training_loss",epoch_loss,epoch+1)
     validation_writer.add_scalar("validation loss",validation_loss, epoch+1)
     writeImage(epoch, step)
@@ -171,7 +171,7 @@ for epoch in range(Epochs):
             'epoch': epoch,
             'model_state_dict': unet3D.state_dict(),
             'optimizer_state_dict': opt.state_dict(),
-            'loss': overall_loss/Batch_count,
+            'loss': epoch_loss,
         }, os.path.join("Models",training_name))
         old_validation_loss = validation_loss
 
