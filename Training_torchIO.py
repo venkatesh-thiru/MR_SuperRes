@@ -1,8 +1,6 @@
-from pathlib import Path
 import torchio as tio
 from torchio import AFFINE,DATA
 from tqdm import tqdm
-import glob
 import torch
 import torchvision
 import os
@@ -12,11 +10,13 @@ from UNetModel import Unet
 import torch.optim as optim
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-from torchio.transforms import Compose,ZNormalization,RescaleIntensity
+from torchio.transforms import Compose,ZNormalization,RescaleIntensity,RandomNoise
 import statistics
 import random
 import DenseNetModel
 import pytorch_ssim
+from utils import train_test_val_split
+
 import multiprocessing
 
 
@@ -48,37 +48,21 @@ Epochs = 50
 training_batch_size = 12
 validation_batch_size = 6
 patch_size = 32
-samples_per_volume = 40
+samples_per_volume = 20
 max_queue_length = 80
 
 
-training_name = "denseNet3D_torchIO_patch_{}_samples_{}_ADAMOptim_{}Epochs_BS{}_GlorotWeights_SSIM_2810".format(patch_size,samples_per_volume,Epochs,training_batch_size)
-train_writer = SummaryWriter(os.path.join("runs",training_name+"_training"))
-validation_writer = SummaryWriter(os.path.join("runs",training_name+"_validation"))
+training_name = "denseNet3D_torchIO_patch_{}_samples_{}_ADAMOptim_{}Epochs_BS{}_GlorotWeights_SSIM_1511".format(patch_size,samples_per_volume,Epochs,training_batch_size)
+train_writer = SummaryWriter(os.path.join("runs","Densenets",training_name+"_training"))
+validation_writer = SummaryWriter(os.path.join("runs","Densenets",training_name+"_validation"))
 
-
-ground_truths = Path("IXI-T1/Actual_Images")
-compressed_images = Path("IXI-T1/Compressed_3x3x1.2")
-ground_paths = sorted(ground_truths.glob('*.nii.gz'))
-compressed_paths = sorted(compressed_images.glob('*.nii.gz'))
-subjects = []
-
-for gt,comp in zip(ground_paths,compressed_paths):
-    subject = tio.Subject(
-                ground_truth = tio.ScalarImage(gt),
-                compressed = tio.ScalarImage(comp),
-                )
-    subjects.append(subject)
-
-
-training_subjects = subjects[:int(len(subjects)*0.85)]
-validation_subjects = subjects[int(len(subjects)*0.85)+1:int(len(subjects)*0.9)]
-test_subjects = subjects[int(len(subjects)*0.9)+1:]
+training_subjects,test_subjects,validation_subjects = train_test_val_split()
 
 
 training_transform = Compose([RescaleIntensity((0,1))])
 validation_transform = Compose([RescaleIntensity((0,1))])
-test_transform = Compose([RescaleIntensity((0,1))])
+test_transform = Compose([RescaleIntensity((0,1)),
+                  RandomNoise(p=0.05)])
 
 
 training_dataset = tio.SubjectsDataset(training_subjects,transform=training_transform)
@@ -106,7 +90,7 @@ patches_validation_set = tio.Queue(
 )
 
 training_loader = torch.utils.data.DataLoader(
-    patches_training_set, batch_size=training_batch_size)
+    patches_training_set, batch_size=training_batch_size, shuffle = True)
 validation_loader = torch.utils.data.DataLoader(
     patches_validation_set, batch_size=validation_batch_size)
 
@@ -131,8 +115,9 @@ def test_network(epoch):
     input_tensor = sample.compressed.data[0]
     patch_size = 64,64,64
     patch_overlap = 4,4,4
+    model.eval()
     grid_sampler = tio.inference.GridSampler(sample,patch_size,patch_overlap)
-    patch_loader = torch.utils.data.DataLoader(grid_sampler,int(validation_batch_size/4))
+    patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size = 2)
     aggregator = tio.inference.GridAggregator(grid_sampler,overlap_mode="average")
     with torch.no_grad():
         for batch in patch_loader:
@@ -140,6 +125,7 @@ def test_network(epoch):
             logits = model(inputs)
             location = batch[tio.LOCATION]
             aggregator.add_batch(logits,location)
+    model.train()
     result = aggregator.get_output_tensor()
     original, compressed = torch.squeeze(sample.ground_truth["data"]), torch.squeeze(sample.compressed["data"])
     result = torch.squeeze(result)
@@ -152,15 +138,17 @@ def test_network(epoch):
 
 
 def validation_loop():
+    print(("validating......."))
     overall_validation_loss = []
-    for batch in tqdm(validation_loader):
+    model.eval()
+    for batch in validation_loader:
         batch_actual = batch["ground_truth"][DATA].to(device)
         batch_compressed = batch["compressed"][DATA].to(device)
         with torch.no_grad():
             logit = model(batch_compressed)
         loss = loss_fn(logit, batch_actual)
         overall_validation_loss.append(loss.item())
-
+    model.train()
     validation_loss = statistics.mean(overall_validation_loss)
     return validation_loss
 
@@ -180,16 +168,20 @@ for epoch in range(Epochs):
         loss.backward()
         opt.step()
         overall_training_loss.append(-loss.item())
-        # if not steps % 50:
-        #     validation_loss = validation_loop()
-        #     training_loss = statistics.mean(overall_training_loss)
-        #     train_writer.add_scalar("training_loss", training_loss, steps)
-        #     validation_writer.add_scalar("validation_loss", validation_loss, steps)
-    validation_loss = validation_loop()
-    test_network(epoch)
-    training_loss = statistics.mean(overall_training_loss)
-    print("EPOCH {} : training_loss ===> {};validation_loss ===> {}".format(epoch,training_loss,validation_loss))
-    if (old_validation_loss == 0) or (old_validation_loss<validation_loss):
-        torch.save(model,os.path.join("Models",training_name+".pth"))
-        old_validation_loss= validation_loss
-        print("model_saved")
+        if not steps % 100:
+            training_loss = statistics.mean(overall_training_loss)
+            train_writer.add_scalar("training_loss", training_loss, steps)
+            test_network(steps)
+            training_loss = statistics.mean(overall_training_loss)
+            print("step {} : training_loss ===> {}".format(steps,training_loss))
+            if not steps%1000 :
+                validation_loss = validation_loop()
+                validation_writer.add_scalar("validation_loss", validation_loss, steps)
+                if (old_validation_loss == 0) or (old_validation_loss < validation_loss):
+                    torch.save({'epoch': epoch,
+                                'model_state_dict': model.state_dict(),
+                                'optimizer_state_dict': opt.state_dict(),
+                                'loss': loss}, os.path.join("Models", training_name + ".pth"))
+                    old_validation_loss = validation_loss
+                    print("model_saved")
+

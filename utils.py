@@ -8,6 +8,11 @@ import scipy
 from scipy.ndimage import zoom
 from fsl.data.image import Image
 from fsl.utils.image import resample
+from pathlib import Path
+import torchio as tio
+import glob
+from sklearn.model_selection import train_test_split
+
 
 def show_slices(slices):
     """ Function to display row of image slices """
@@ -60,21 +65,48 @@ def FFT_compression(myimg,scale_factor,ifzoom=True):
     else:
         return resample_img[0],new_affine
 
-def write_data(compressed,scan,new_affine):
-    target_dir = "IXI-T1/Compressed_3x3x1.2"
+def write_data(compressed,scan,new_affine,scale_factor):
+    target_dir = "IXI-T1/Compressed_{}x{}x{}".format(scale_factor[0],scale_factor[1],scale_factor[2])
+    if not os.path.exists(target_dir):
+        os.makedirs(target_dir)
     compressed_img = nib.Nifti1Image(compressed.astype(np.int16),new_affine)
-    compressed_img.to_filename(os.path.join(target_dir, scan) + ".nii.gz")
+    compressed_img.to_filename(os.path.join(target_dir, scan))
 
 
-def prepare_datasets():
+def prepare_datasets(scale_factor):
     data_dir = "IXI-T1/Actual_Images"
     scans = os.listdir(data_dir)
     for scan in tqdm(scans):
         try:
             myimg = Image(os.path.join(data_dir, scan))
-            compressed,new_affine = FFT_compression(myimg,[3,3,1.2])
+            compressed,new_affine = FFT_compression(myimg,scale_factor)
             compressed = compressed.astype(np.int16)
-            write_data(compressed,scan,new_affine)
+            write_data(compressed,scan,new_affine,scale_factor)
         except:
             print("{} invalid input".format(scan))
     print("write finished")
+
+
+def train_test_val_split():
+    ground_truths = Path("IXI-T1/Actual_Images")
+    ground_paths = sorted(ground_truths.glob('*.nii.gz'))
+    compressed_dirs = [sorted(Path((os.path.join("IXI-T1",comp))).glob('*.nii.gz')) for comp in os.listdir("IXI-T1") if "Compressed" in comp]
+    # compressed_images = Path("IXI-T1/Compressed_3x3x1.2")
+    # compressed_paths = sorted(compressed_images.glob('*.nii.gz'))
+    training_subjects = []
+    test_subjects = []
+    validation_subjects = []
+    for compressed_paths in compressed_dirs:
+        subjects = []
+        for gt,comp in zip(ground_paths,compressed_paths):
+            subject = tio.Subject(
+                    ground_truth = tio.ScalarImage(gt),
+                    compressed = tio.ScalarImage(comp),
+                    )
+            subjects.append(subject)
+        train_split,test_split = train_test_split(subjects,test_size=0.3)
+        test_split,validation_split = train_test_split(test_split,test_size=0.2)
+        training_subjects += train_split
+        validation_subjects += validation_split
+        test_subjects += test_split
+    return training_subjects,test_subjects,validation_subjects
