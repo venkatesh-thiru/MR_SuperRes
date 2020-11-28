@@ -16,6 +16,7 @@ import random
 import DenseNetModel
 import pytorch_ssim
 from utils import train_test_val_split
+from pLoss.perceptual_loss import PerceptualLoss
 
 import multiprocessing
 
@@ -43,6 +44,7 @@ model = model.to(device)
 learning_rate = 0.001
 opt = optim.Adam(model.parameters(),lr=learning_rate)
 loss_fn = pytorch_ssim.SSIM3D(window_size=11)
+pLoss = PerceptualLoss().cuda()
 
 Epochs = 50
 training_batch_size = 12
@@ -59,10 +61,10 @@ validation_writer = SummaryWriter(os.path.join("runs","Densenets",training_name+
 training_subjects,test_subjects,validation_subjects = train_test_val_split()
 
 
-training_transform = Compose([RescaleIntensity((0,1))])
+training_transform = Compose([RescaleIntensity((0,1)),
+                              RandomNoise(p=0.05)])
 validation_transform = Compose([RescaleIntensity((0,1))])
-test_transform = Compose([RescaleIntensity((0,1)),
-                  RandomNoise(p=0.05)])
+test_transform = Compose([RescaleIntensity((0,1))])
 
 
 training_dataset = tio.SubjectsDataset(training_subjects,transform=training_transform)
@@ -163,11 +165,13 @@ for epoch in range(Epochs):
         batch_actual = batch["ground_truth"][DATA].to(device)
         batch_compressed = batch["compressed"][DATA].to(device)
         logit = model(batch_compressed)
-        loss = -loss_fn(logit,batch_actual)
+        loss = 1 - loss_fn(logit,batch_actual)
+        perLoss = PerceptualLoss(logit,batch_actual)
+        loss += perLoss
         opt.zero_grad()
         loss.backward()
         opt.step()
-        overall_training_loss.append(-loss.item())
+        overall_training_loss.append(loss.item())
         if not steps % 100:
             training_loss = statistics.mean(overall_training_loss)
             train_writer.add_scalar("training_loss", training_loss, steps)
@@ -184,4 +188,3 @@ for epoch in range(Epochs):
                                 'loss': loss}, os.path.join("Models", training_name + ".pth"))
                     old_validation_loss = validation_loss
                     print("model_saved")
-

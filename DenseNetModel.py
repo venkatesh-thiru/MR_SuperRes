@@ -65,7 +65,7 @@ class DenseNet(nn.Module):
                                kernel_size=init_kernel_size)
             self.features.add_module("denseblock{}".format(i+1),block)
             num_features = num_features+growth_rate*num_layers
-            init_kernel_size -= 2       #kernel size increases by 4 for each dense blocks
+            init_kernel_size -= 2       #kernel size increases by 2 for each dense blocks
             if i != len(block_config)-1:
                 transition = Transition(num_input_features=num_features,
                                         num_output_features=num_features//2)    #compression factor 0.5
@@ -86,7 +86,7 @@ class DenseNet(nn.Module):
 if __name__ == '__main__':
     model = DenseNet(num_init_features=4,growth_rate=6,block_config=(6,6,6))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dimensions = 2, 1, 64,64,64
+    dimensions = 2, 1, 32,32,32
     x = torch.rand(dimensions)
     x = x.to(device)
     model = model.to(device)
